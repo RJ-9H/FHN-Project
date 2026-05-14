@@ -7,6 +7,7 @@ Inherits Torus2D for the periodic grid setup and spectral operators.
 Accepts any FHNBase subclass as the physical model.
 """
 
+
 import numpy as np
 import scipy.fft as fft
 from Torus import Torus2D
