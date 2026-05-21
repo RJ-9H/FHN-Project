@@ -6,7 +6,7 @@ The models and analyser are the same for both.
 
 For the pseudo spectral method read: https://arxiv.org/pdf/2305.08998
 It should also be noted that the Torus2D and Simulation is taken from a project on Incompressible Schrodinger Flow. 
-Torus was taken from 3D-2D and simulation uses a different numerical method for PDEs but the structure is similar.
+Torus was taken from 3D to 2D and simulation uses a different numerical method for PDEs but the structure is similar.
 
 For literature on the FHN-model please consult: https://arxiv.org/pdf/2404.11403
 
