@@ -4,15 +4,9 @@ Grid2D.py
 2D rectangular grid with Neumann (zero-flux) boundary conditions.
 Replaces Torus2D (periodic) for the spiral wave simulations.
 
-Key difference from Torus2D:
+Key difference:
   - Uses Discrete Cosine Transform (DCT-II) instead of FFT
   - Wavenumbers: k_n = n*pi/L  (not 2*pi*n/L)
-  - No periodic wrapping — boundaries are reflecting, not connected
-  - Fields stay real throughout (no complex arithmetic)
-
-The DCT-II basis functions cos(n*pi*x/L) satisfy:
-    d/dx [cos(n*pi*x/L)] = 0  at x=0 and x=L
-which is exactly the Neumann condition.
 """
 
 import numpy as np

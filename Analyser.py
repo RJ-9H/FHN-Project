@@ -4,26 +4,6 @@ Analyser.py
 Post-simulation analysis and plotting for the 2D FHN system.
 Works with any completed FHNSimulation object.
 
-Plots
------
-  plot_snapshot            : 2D heatmap of u or v at a saved time index
-  plot_spacetime_slice     : (x,t) heatmap along a fixed y-slice
-  plot_dispersion          : growth rate Re(λ) vs wavenumber k
-  plot_mass                : total mass ∫∫u dA over time
-  plot_power_spectrum      : radially averaged |û(k)|² — dominant wavelength
-  plot_dominant_wavenumber : k*(t) over time — coarsening vs band locking
-  plot_nullclines          : f=0 and g=0 curves in (u,v) phase plane
-  plot_phase_portrait      : u(t) vs v(t) at a single grid point
-
-  — Dynamics comparison (wave speed / instability / robustness) —
-  plot_wave_speed          : space-time slice + 1D front profiles + fitted speed
-  plot_instability_onset   : dispersion with unstable band shaded and λ* annotated
-  plot_robustness          : static method — snapshot grid + k* vs swept param
-
-  — Panel methods —
-  plot_comparison          : 4x3 panel for two models
-  plot_phase_plane         : nullclines + phase portraits for two models
-  plot_dynamics_comparison : 3-row panel covering all three dynamics questions
 """
 
 import numpy as np
@@ -47,14 +27,16 @@ class FHNAnalyser:
     # ── Linear stability ──────────────────────────────────────────────────────
 
     def steady_state(self):
-        """Find homogeneous steady state (u*, v*) numerically."""
+        """
+        Find homogeneous steady state (u*, v*) numerically.
+        """
         m = self.model
 
         def equations(vars):
             u, v = vars
             return [m.f(u, v), m.g(u, v)]
 
-        u_star, v_star = fsolve(equations, [0.0, 0.0])
+        u_star, v_star = fsolve(equations, [-1.0, -0.5])
         return u_star, v_star
 
     def jacobian(self, u0, v0):
@@ -98,9 +80,6 @@ class FHNAnalyser:
         """
         Radially averaged power spectrum |û(k)|² at a saved time index.
 
-        Collapses the 2D Fourier plane onto 1D by binning by |k|.
-        Peak identifies the dominant spatial wavelength λ* = 2π/k*.
-
         Returns k_bins, power.
         """
         u      = self.sim.u_history[t_idx]
@@ -128,15 +107,15 @@ class FHNAnalyser:
         """
         Track dominant wavenumber k*(t) over all saved frames.
 
-        Regular FHN     : k* stabilises quickly (Turing band is fixed).
-        Mass-Conserved  : k* drifts as t^(-1/3) during Cahn-Hilliard coarsening.
+        Regular FHN     : k* stabilises quickly once pattern forms.
+        Mass-Conserved  : k* drifts downward during Cahn-Hilliard coarsening.
 
         Returns t, k_stars.
         """
         k_stars = []
         for t_idx in range(len(self.sim.t_history)):
             k_bins, power = self.radial_power_spectrum(t_idx)
-            power[0] = 0                           # suppress DC
+            power[0] = 0
             k_stars.append(k_bins[np.argmax(power)])
         return self.sim.t_history, np.array(k_stars)
 
@@ -146,8 +125,8 @@ class FHNAnalyser:
         """
         Nullcline curves in (u,v) phase space.
 
-        f(u,v)=0  →  v = u − u³/3        (u-nullcline, cubic)
-        g(u,v)=0  →  v = (u + a)/b       (v-nullcline, linear)
+        f(u,v)=0  →  v = u − u³/3        (cubic u-nullcline)
+        g(u,v)=0  →  v = (u + a)/b       (linear v-nullcline)
 
         Returns u_vals, v_f_null, v_g_null.
         """
@@ -160,25 +139,21 @@ class FHNAnalyser:
     # ── Mass diagnostic ───────────────────────────────────────────────────────
 
     def check_mass_conservation(self):
-        """
-        Total mass ∫∫u dA at each saved step.
-
-        Mass-Conserved : constant to floating-point precision.
-        Regular FHN    : drifts freely — not conserved by design.
-        """
+        """Total mass ∫∫u dA at each saved step."""
         return self.sim.mass()
 
-    # ── Wave speed and shape ──────────────────────────────────────────────────
+    # ── Wave speed ────────────────────────────────────────────────────────────
 
     def estimate_wave_speed(self, field='u', y_idx=None):
         """
         Estimate wave propagation speed from the space-time slice.
 
-        Tracks the steepest-gradient position along x at each saved time,
-        then fits a line.  Slope = wave speed c.
+        Tracks the steepest-gradient position along x at each saved time
+        and fits a line.  Slope = wave speed c.
 
-        Regular FHN     : clear nonzero slope — fronts propagate.
-        Mass-Conserved  : slope ≈ 0 — domain walls drift but do not travel.
+        Note: this method is only reliable when the pattern genuinely
+        propagates (spiral waves, pulses).  For stationary labyrinthine
+        patterns the front-tracking is noisy and c ≈ 0 is the correct result.
 
         Returns t, front_x, speed.
         """
@@ -193,7 +168,7 @@ class FHNAnalyser:
             front_x.append(x[np.argmax(grad)])
         front_x = np.array(front_x)
 
-        i0    = len(t) // 5                        # skip early transient
+        i0    = len(t) // 5
         coeff = np.polyfit(t[i0:], front_x[i0:], 1)
         speed = coeff[0]
 
@@ -203,11 +178,8 @@ class FHNAnalyser:
         """
         Two-panel wave-speed diagram.
 
-        Left  : space-time (x,t) slice with fitted front trajectory overlaid.
-                Diagonal stripes → propagating wave; slope = speed c.
+        Left  : space-time (x,t) slice with fitted front trajectory.
         Right : 1D cross-sections at early / mid / final time.
-                Sharp, translating profiles → Regular FHN.
-                Stationary, broadening profiles → Mass-Conserved FHN.
         """
         if ax_st is None or ax_front is None:
             _, (ax_st, ax_front) = plt.subplots(1, 2, figsize=(12, 4))
@@ -235,19 +207,16 @@ class FHNAnalyser:
 
         return ax_st, ax_front
 
-    # ── Instability onset and pattern wavelength ──────────────────────────────
+    # ── Instability onset ─────────────────────────────────────────────────────
 
     def plot_instability_onset(self, ax=None):
         """
-        Dispersion relation annotated with the unstable band and λ*.
+        Dispersion relation annotated with unstable band, k*, and λ*.
 
-        Regular FHN : shades Re(λ) > 0 band in red; marks k* and λ* = 2π/k*.
-                      The width of the band sets how many wavelengths are
-                      simultaneously unstable (narrow → single-mode pattern).
-
-        MC-FHN      : no band crosses zero (Type-II, k=0 always neutral);
-                      marks the least-damped k for comparison.  The steep k⁴
-                      fall-off means fine-scale modes are heavily suppressed.
+        Regular FHN : shades Re(λ)>0 band; marks k* and λ*=2π/k*.
+        MC-FHN      : Type-II instability — k=0 always neutral.
+                      Marks least-damped k for reference only; the nonlinear
+                      pattern wavelength is not predicted by linear theory here.
         """
         k, gr = self.dispersion_relation()
 
@@ -266,48 +235,41 @@ class FHNAnalyser:
             ax.axvline(k_star, color='red', lw=1.2, ls=':',
                        label=f'k* = {k_star:.2f}  →  λ* = {lam_star:.1f}')
         else:
-            gr_copy     = gr.copy(); gr_copy[0] = -np.inf
-            k_least     = k[np.argmax(gr_copy)]
-            lam_least   = 2 * np.pi / k_least if k_least > 0 else np.inf
+            gr_copy   = gr.copy(); gr_copy[0] = -np.inf
+            k_least   = k[np.argmax(gr_copy)]
+            lam_least = 2 * np.pi / k_least if k_least > 0 else np.inf
             ax.axvline(k_least, color='orange', lw=1.2, ls=':',
-                       label=f'least-damped k = {k_least:.2f}  (λ = {lam_least:.1f})')
+                       label=f'least-damped k={k_least:.2f}  (λ={lam_least:.1f})\n'
+                             f'(Type-II: λ* set nonlinearly)')
 
         ax.set_xlabel('Wavenumber k')
         ax.set_ylabel('Growth rate Re(λ)')
         ax.set_title(f'Instability onset — {self.model.__class__.__name__}')
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=8)
         return ax
 
-    # ── Robustness to parameter changes ──────────────────────────────────────
+    # ── Robustness ────────────────────────────────────────────────────────────
 
     @staticmethod
     def plot_robustness(sweep_results, param_name, fig=None):
         """
-        Visualise a parameter sweep (run in main) as a snapshot grid + k* plot.
+        Snapshot grid + k* vs swept parameter.
 
         Parameters
         ----------
-        sweep_results : list of dicts, each with:
-                          'param_value' : numeric value of the swept parameter
-                          'sim'         : completed FHNSimulation
-                          'label'       : string for subplot title
-        param_name    : x-axis label for the k* vs param plot
-        fig           : optional existing Figure; created if None
-
-        Top row   : final u(x,y) snapshot for each parameter value.
-                    Shows visually how patterns coarsen / sharpen / vanish.
-        Bottom    : dominant k* at final time vs parameter value.
-                    k* → 0 means pattern wavelength diverges (pattern collapse).
+        sweep_results : list of dicts with 'param_value', 'sim', 'label'
+        param_name    : x-axis label string
+        fig           : optional existing Figure
         """
         n = len(sweep_results)
 
         if fig is None:
             fig = plt.figure(figsize=(3.5 * n, 7))
 
-        gs         = fig.add_gridspec(2, n, height_ratios=[3, 1],
-                                      hspace=0.45, wspace=0.3)
-        axes_snap  = [fig.add_subplot(gs[0, i]) for i in range(n)]
-        ax_kstar   = fig.add_subplot(gs[1, :])
+        gs        = fig.add_gridspec(2, n, height_ratios=[3, 1],
+                                     hspace=0.45, wspace=0.3)
+        axes_snap = [fig.add_subplot(gs[0, i]) for i in range(n)]
+        ax_kstar  = fig.add_subplot(gs[1, :])
 
         param_vals, k_stars = [], []
 
@@ -316,7 +278,6 @@ class FHNAnalyser:
             label = res['label']
             pval  = res['param_value']
 
-            # Snapshot
             axes_snap[i].imshow(
                 sim.u_history[-1].T, origin='lower',
                 extent=[0, sim.sizex, 0, sim.sizey],
@@ -325,18 +286,16 @@ class FHNAnalyser:
             axes_snap[i].set_title(label, fontsize=9)
             axes_snap[i].axis('off')
 
-            # Dominant k* from final power spectrum
             ana          = FHNAnalyser(sim)
             k_bin, power = ana.radial_power_spectrum(t_idx=-1)
-            power[0]     = 0                       # suppress DC
+            power[0]     = 0
             k_stars.append(k_bin[np.argmax(power)])
             param_vals.append(pval)
 
         ax_kstar.plot(param_vals, k_stars, 'o-', lw=2)
         ax_kstar.set_xlabel(param_name)
         ax_kstar.set_ylabel('Dominant k*')
-        ax_kstar.set_title(f'Pattern wavelength vs {param_name}  '
-                           f'(k*→0 means pattern collapses)')
+        ax_kstar.set_title(f'Pattern wavenumber vs {param_name}')
 
         return fig
 
@@ -361,12 +320,7 @@ class FHNAnalyser:
         return ax
 
     def plot_spacetime_slice(self, field='u', y_idx=None, ax=None):
-        """
-        Space-time (x,t) heatmap along a fixed y-slice.
-
-        Diagonal stripes → wave propagation (Regular FHN).
-        Vertical or blurry features → stationary domains (Mass-Conserved).
-        """
+        """Space-time (x,t) heatmap along a fixed y-slice."""
         data  = self.sim.u_history if field == 'u' else self.sim.v_history
         y_idx = y_idx or self.sim.resy // 2
 
@@ -384,7 +338,7 @@ class FHNAnalyser:
         return ax
 
     def plot_dispersion(self, ax=None):
-        """Growth rate Re(λ) vs wavenumber k (unannotated version)."""
+        """Growth rate Re(λ) vs wavenumber k."""
         k, gr = self.dispersion_relation()
 
         if ax is None:
@@ -423,7 +377,8 @@ class FHNAnalyser:
                    label=f'k* = {k_star:.2f}  (λ* = {2*np.pi/k_star:.1f})')
         ax.set_xlabel('Wavenumber k  [rad / length]')
         ax.set_ylabel('Mean power |û|²')
-        ax.set_title(f'Power spectrum — {self.model.__class__.__name__}  (t={t:.0f})')
+        ax.set_title(
+            f'Power spectrum — {self.model.__class__.__name__}  (t={t:.0f})')
         ax.legend(fontsize=9)
         return ax
 
@@ -441,7 +396,7 @@ class FHNAnalyser:
         return ax
 
     def plot_nullclines(self, ax=None):
-        """f=0 and g=0 nullclines in (u,v) phase space."""
+        """f=0 and g=0 nullclines with corrected steady state marked."""
         u_vals, v_f, v_g = self.nullclines()
         u_star, v_star   = self.steady_state()
 
@@ -480,13 +435,9 @@ class FHNAnalyser:
     # ── Panel methods ─────────────────────────────────────────────────────────
 
     def plot_comparison(self, other):
-        """
-        4×3 panel: snapshot | dispersion | mass
-                   space-time | power spectrum | dominant k*
-        for this model (rows 0-1) and other (rows 2-3).
-        """
+        """4×3 panel: snapshot | dispersion | mass / space-time | power | k*(t)."""
         fig, axes = plt.subplots(4, 3, figsize=(16, 20))
-        fig.suptitle('Regular vs Mass-Conserved FHN (2D Spectral)', fontsize=14)
+        #fig.suptitle('Regular vs Mass-Conserved FHN (2D Spectral)', fontsize=14)
 
         for row, ana in enumerate([self, other]):
             r = row * 2
@@ -503,7 +454,7 @@ class FHNAnalyser:
         return fig
 
     def plot_phase_plane(self, other):
-        """1×4 panel: nullclines + phase portraits for both models."""
+        """1×4: nullclines + phase portraits for both models."""
         fig, axes = plt.subplots(1, 4, figsize=(18, 5))
         fig.suptitle('Phase plane — Regular vs Mass-Conserved FHN', fontsize=13)
 
@@ -515,43 +466,22 @@ class FHNAnalyser:
         plt.tight_layout()
         return fig
 
-    def plot_dynamics_comparison(self, other,
-                                 reg_sweep, mc_sweep,
+    def plot_dynamics_comparison(self, other, reg_sweep, mc_sweep,
                                  sweep_param_name):
         """
-        3-row panel covering all three dynamics questions.
+        Three figures covering all dynamics questions.
 
-        Row 0 — Wave speed and shape
-            Col 0-1 : Regular FHN   space-time + front profiles
-            Col 2-3 : MC-FHN        space-time + front profiles
-
-        Row 1 — Onset of instability and pattern wavelength
-            Col 0-1 : Regular FHN   annotated dispersion + power spectrum
-            Col 2-3 : MC-FHN        annotated dispersion + power spectrum
-
-        Row 2 — Robustness to parameter changes
-            Full-width : snapshot grid + k* vs swept parameter
-            (two sub-figures, one per model, stacked)
-
-        Parameters
-        ----------
-        other            : FHNAnalyser for the second model
-        reg_sweep        : list of sweep_result dicts for Regular FHN
-        mc_sweep         : list of sweep_result dicts for MC-FHN
-        sweep_param_name : parameter name string (e.g. 'Du')
+        fig_top     : 2×4 — wave speed (row 0) + instability onset (row 1)
+        fig_rob_reg : Regular FHN robustness sweep
+        fig_rob_mc  : MC-FHN robustness sweep
         """
-        # ── Row 0 & 1: 4-column layout ────────────────────────────────────
         fig_top, axes = plt.subplots(2, 4, figsize=(20, 9))
         fig_top.suptitle(
             'Dynamics comparison — Regular vs Mass-Conserved FHN', fontsize=14)
 
-        # Row 0: wave speed
         self.plot_wave_speed(ax_st=axes[0, 0], ax_front=axes[0, 1])
         other.plot_wave_speed(ax_st=axes[0, 2], ax_front=axes[0, 3])
-        axes[0, 0].set_title(f'RegularFHN — space-time', fontsize=10)
-        axes[0, 2].set_title(f'MC-FHN — space-time', fontsize=10)
 
-        # Row 1: instability onset
         self.plot_instability_onset(ax=axes[1, 0])
         self.plot_power_spectrum(ax=axes[1, 1])
         other.plot_instability_onset(ax=axes[1, 2])
@@ -559,17 +489,14 @@ class FHNAnalyser:
 
         fig_top.tight_layout()
 
-        # ── Row 2: robustness (separate figures, one per model) ───────────
-        fig_reg = FHNAnalyser.plot_robustness(
-            reg_sweep, sweep_param_name)
-        fig_reg.suptitle(
+        fig_rob_reg = FHNAnalyser.plot_robustness(reg_sweep, sweep_param_name)
+        fig_rob_reg.suptitle(
             f'Robustness — RegularFHN  (sweep: {sweep_param_name})',
             fontsize=12)
 
-        fig_mc = FHNAnalyser.plot_robustness(
-            mc_sweep, sweep_param_name)
-        fig_mc.suptitle(
-            f'Robustness — MassConservedFHN  (sweep: {sweep_param_name})',
+        fig_rob_mc = FHNAnalyser.plot_robustness(mc_sweep, 'a')
+        fig_rob_mc.suptitle(
+            'Robustness — MassConservedFHN  (sweep: a, volume fraction)',
             fontsize=12)
 
-        return fig_top, fig_reg, fig_mc
+        return fig_top, fig_rob_reg, fig_rob_mc

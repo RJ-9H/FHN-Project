@@ -110,4 +110,4 @@ class FHNSimulation(Torus2D):
 
     def mass(self):
         """Total mass ∫∫u dA at each saved time step."""
-        return self.u_history.sum(axis=(1, 2)) * self.dx * self.dy
+        return ((self.u_history.sum(axis=(1, 2))) * self.dx * self.dy)
